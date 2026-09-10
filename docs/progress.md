@@ -17,7 +17,7 @@ Evidence: `go test -race ./...`, `go vet ./...`, and `go build ./cmd/budge` pass
 4. Failure semantics, concurrency, renewal, revocation and recovery tests.
 5. Packaging, UI polish, documentation, CI and measured mock demo.
 
-Real OpenCode/OpenRouter compatibility and real MCP-host compatibility are unverified.
+Real OpenCode/OpenRouter compatibility and an independently deployed MCP host remain unverified; the official SDK host is exercised over a real stdio subprocess.
 
 ## Slice 2 — verified (mock upstreams)
 
@@ -30,3 +30,9 @@ Slice 2 implementation: method lists, exact/subtree/optional-expiry rules, trans
 Compatibility inspection: the underlying installed OpenCode reports 1.18.20. Its user launcher reads a real OpenRouter credential, so it was deliberately not executed. Official provider documentation/source supports `provider.openrouter.options.baseURL` and `apiKey`. No real-provider smoke test was run. Sources: https://opencode.ai/docs/providers/ and https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/provider/provider.ts .
 
 Streaming test initially had a fixture error: its handler waited for cancellation without consuming the incoming body; fixed the mock to consume the finite request before streaming. It now confirms first event arrival while upstream stays open and cancellation of all four active streams. Tests also cover size limits, reserved/dynamic hop-by-hop headers, redirect refusal, path boundaries/encodings, overlap rejection, old-revision denial and explicit reissue.
+
+## Slice 3 — verified (SDK host and mock upstream)
+
+Acceptance: three SDK MCP tools through private connector socket; non-LLM write stays pending until owner approval; HTTP cannot bypass approval; full immutable snapshot/digest review without credential; deduplicated submissions; device-scoped status/results. Pin official MCP Go SDK v1.7.0 (official repository and Go module proxy checked).
+
+Slice 3 evidence: full race suite, vet and binary build pass. Official SDK client launches a stdio subprocess, negotiates MCP, lists scopes and submits/polls over a private Unix socket and device TLS. Integration tests cover full escaped owner review, digest mismatch, approval-before-write, duplicate decision/submission, 12 concurrent same-key submissions, changed-key conflict, denial, cross-device result isolation, unknown MCP argument rejection and encrypted payload storage. Worker startup recovery, deadlines, cancellation on revisions/revocation, bounded results and retention are implemented; their failure-injection evidence is Slice 4.

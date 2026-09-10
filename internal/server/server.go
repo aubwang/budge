@@ -46,6 +46,9 @@ func New(db *store.Store, serverURL, ownerHost, initialPassword string) (*Server
 			return nil, e
 		}
 	}
+	if e := s.recoverDispatches(); e != nil {
+		return nil, e
+	}
 	return s, nil
 }
 func Error(w http.ResponseWriter, status int, code string) {
@@ -128,6 +131,14 @@ func (s *Server) DeviceHandler() http.Handler {
 		}
 		if r.URL.Path == "/device/services" && r.Method == "GET" {
 			s.services(w, r, device)
+			return
+		}
+		if r.URL.Path == "/device/request" && r.Method == "POST" {
+			s.submit(w, r, device)
+			return
+		}
+		if r.URL.Path == "/device/status" && r.Method == "POST" {
+			s.status(w, r, device)
 			return
 		}
 		service, path, ok := access.Route(r)

@@ -18,8 +18,10 @@ import (
 	"time"
 
 	"budge/internal/client"
+	budgemcp "budge/internal/mcp"
 	"budge/internal/server"
 	"budge/internal/store"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/term"
 )
 
@@ -113,7 +115,13 @@ func run() error {
 		}
 		defer ol.Close()
 		fmt.Fprintln(os.Stderr, "Owner UI: http://"+*ownerAddr)
-		return serve(ctx, []net.Listener{tls.NewListener(dl, tc), ol}, []http.Handler{s.DeviceHandler(), s.OwnerHandler()})
+		workerCtx, cancelWorker := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() { defer close(done); s.RunWorker(workerCtx) }()
+		e = serve(ctx, []net.Listener{tls.NewListener(dl, tc), ol}, []http.Handler{s.DeviceHandler(), s.OwnerHandler()})
+		cancelWorker()
+		<-done
+		return e
 	case "enroll":
 		path := flags.String("identity", defaultIdentity(), "encrypted identity path")
 		invFD := flags.Int("invitation-fd", -1, "dedicated invitation input FD")
@@ -147,6 +155,7 @@ func run() error {
 	case "connect":
 		configOnly := flags.Bool("print-opencode-config", false, "print OpenRouter routing config without starting or unlocking")
 		service := flags.String("service", "openrouter", "service ID for generated config")
+		socket := flags.String("socket", filepath.Join(filepath.Dir(defaultIdentity()), "connect.sock"), "private MCP connector socket")
 		path := flags.String("identity", defaultIdentity(), "encrypted identity path")
 		listen := flags.String("listen", "127.0.0.1:7777", "loopback connector address")
 		passFD := flags.Int("passphrase-fd", -1, "dedicated identity passphrase input FD")
@@ -180,9 +189,28 @@ func run() error {
 		}
 		defer l.Close()
 		fmt.Fprintln(os.Stderr, "Service URL: http://"+*listen+"/s/{service}/{path}")
-		return serve(ctx, []net.Listener{l}, []http.Handler{handler})
+		sl, e := client.ListenSocket(*socket)
+		if e != nil {
+			return e
+		}
+		defer sl.Close()
+		sh, closeSocket, e := client.SocketHandler(id)
+		if e != nil {
+			return e
+		}
+		defer closeSocket()
+		return serve(ctx, []net.Listener{l, sl}, []http.Handler{handler, sh})
 	case "mcp":
-		return errors.New("MCP arrives in Slice 3")
+		socket := flags.String("socket", filepath.Join(filepath.Dir(defaultIdentity()), "connect.sock"), "private connector socket")
+		if e := flags.Parse(os.Args[2:]); e != nil {
+			return e
+		}
+		c, e := client.SocketClient(*socket)
+		if e != nil {
+			return e
+		}
+		defer c.CloseIdleConnections()
+		return budgemcp.New(c).Run(ctx, &sdk.StdioTransport{})
 	default:
 		return errors.New("unknown command")
 	}

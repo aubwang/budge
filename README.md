@@ -22,8 +22,18 @@ The server's default device and owner listeners bind loopback. Set `--device-lis
 
 ## Current boundaries
 
-Exact/subtree rules, method lists, optional expiry, standing/approval-required modes, service revision replacement and revocation are available. Direct HTTP rejects approval-required routes; MCP is not implemented yet. HTTPS upstreams are required; private, loopback and link-local addresses are denied. Integration tests inject a local TLS mock transport in test code only. Paths use the handoff's conservative ASCII grammar. HTTP request bodies are limited to 8 MiB. Local processes can use the connector's device-wide authority. A trusted upstream that reflects its own credential can expose it in a response; Budge is not a response DLP filter.
+Exact/subtree rules, method lists, optional expiry, standing/approval-required modes, service revision replacement and revocation are available. Direct HTTP rejects approval-required routes. MCP exposes budge_services, budge_request and budge_request_status through the running connector's private Unix socket. HTTPS upstreams are required; private, loopback and link-local addresses are denied. Integration tests inject a local TLS mock transport in test code only. Paths use the handoff's conservative ASCII grammar. HTTP request bodies are limited to 8 MiB. Local processes can use the connector's device-wide authority. A trusted upstream that reflects its own credential can expose it in a response; Budge is not a response DLP filter.
 
 This is work in progress, not a completed or published v1. Do not restore an old database and resume service: an old copy may resurrect access and, once durable requests exist, execution authority.
 
 HTTP uses bounded 10-second connection/TLS and 30-second response-header timeouts, a five-minute upstream/read idle timeout, and a 30-second downstream write timeout. There is no short total response timeout. Responses stream with bounded buffers and backpressure. There are four concurrent requests per device and 32 globally. There are no Budge application retries; fresh outbound HTTP/1 transports also avoid pooled-connection replay. HTTP audit metrics contain IDs, method, status, duration and byte counts, not raw paths/queries or bodies.
+
+## Approved requests through MCP
+
+Start `budge connect`, then configure your MCP host to launch `budge mcp` (or `budge mcp --socket /absolute/private/connect.sock`). It never prompts on protocol streams; unlock the connector first. The socket directory is user-owned mode 0700 and the socket is mode 0600.
+
+Submit service, method, conservative path, optional raw query, application header object, UTF-8 body (64 KiB maximum), and a client-generated `idempotency_key`. Reuse that key only for the identical submission. The result returns a durable request ID and state. Check it with `budge_request_status`; optional `wait_seconds` is 0–15. An approval-required permission allows asking, not sending. With no scope, submission is denied.
+
+The owner inbox links to the exact stored HTTP request, including query, headers, body, expiry, and snapshot digest. Approve or deny using that page. Budge freezes the snapshot, checks the expected digest and current authority, and claims dispatch transactionally before sending. It makes one automatic dispatch attempt. This is not exactly-once provider execution. `outcome_unknown` requires checking the provider before creating a new request.
+
+Approval expires after ten minutes, including time spent queued after approval. Standing MCP requests have a one-minute queue deadline. Twenty pending approvals per device are allowed. MCP results retain at most 1 MiB; truncated and incomplete responses are explicitly marked. Terminal payloads/results are purged after 24 hours; key/digest/status tombstones remain to prevent key reuse. Payloads are encrypted but still sensitive while unlocked. Routine logs exclude payloads, query strings and upstream credentials.
