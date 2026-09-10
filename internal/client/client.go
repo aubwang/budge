@@ -170,13 +170,21 @@ func Transport(id Identity) (*http.Transport, error) {
 	}, Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, Certificates: []tls.Certificate{cert}}, DisableCompression: true, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 30 * time.Second}, nil
 }
 func Connector(id Identity, host string) (http.Handler, func(), error) {
-	h, p, e := net.SplitHostPort(host)
-	if e != nil || h != "127.0.0.1" || p == "" {
-		return nil, nil, errors.New("connector must bind 127.0.0.1")
-	}
 	tr, e := Transport(id)
 	if e != nil {
 		return nil, nil, e
+	}
+	h, e := ConnectorTransport(id, host, tr)
+	if e != nil {
+		tr.CloseIdleConnections()
+		return nil, nil, e
+	}
+	return h, tr.CloseIdleConnections, nil
+}
+func ConnectorTransport(id Identity, host string, tr *http.Transport) (http.Handler, error) {
+	h, p, e := net.SplitHostPort(host)
+	if e != nil || h != "127.0.0.1" || p == "" {
+		return nil, errors.New("connector must bind 127.0.0.1")
 	}
 	c := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	slots := make(chan struct{}, 4)
@@ -224,5 +232,5 @@ func Connector(id Identity, host string) (http.Handler, func(), error) {
 			panic(http.ErrAbortHandler)
 		}
 	})
-	return handler, tr.CloseIdleConnections, nil
+	return handler, nil
 }

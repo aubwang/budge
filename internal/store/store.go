@@ -29,7 +29,7 @@ func Open(path, unlock string) (s *Store, err error) {
 	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
 	}
-	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0600)
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -44,11 +44,6 @@ func Open(path, unlock string) (s *Store, err error) {
 			opened.Close()
 		}
 	}()
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, err
-	}
-	f.Close()
 	if err = os.Chmod(path, 0600); err != nil {
 		return nil, err
 	}

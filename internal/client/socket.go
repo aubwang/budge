@@ -39,6 +39,9 @@ func SocketHandler(id Identity) (http.Handler, func(), error) {
 	if e != nil {
 		return nil, nil, e
 	}
+	return SocketTransport(id, tr), tr.CloseIdleConnections, nil
+}
+func SocketTransport(id Identity, tr *http.Transport) http.Handler {
 	c := &http.Client{Transport: tr, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := ""
@@ -68,9 +71,13 @@ func SocketHandler(id Identity) (http.Handler, func(), error) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(res.StatusCode)
 		_, _ = io.Copy(w, io.LimitReader(res.Body, 2<<20))
-	}), tr.CloseIdleConnections, nil
+	})
 }
 func SocketClient(path string) (*http.Client, error) {
+	parent, e := os.Lstat(filepath.Dir(path))
+	if e != nil || !parent.IsDir() || parent.Mode().Perm()&0077 != 0 || parent.Sys().(*syscall.Stat_t).Uid != uint32(os.Getuid()) {
+		return nil, errors.New("connector directory ownership or mode is unsafe")
+	}
 	st, e := os.Lstat(path)
 	if e != nil {
 		return nil, errors.New("connector socket unavailable; start budge connect")

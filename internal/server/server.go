@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"database/sql"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"net/http"
@@ -23,6 +24,7 @@ type Server struct {
 	root      *x509.Certificate
 	rootKey   any
 	mu        sync.Mutex
+	certMu    sync.Mutex
 	throttles map[string][]time.Time
 	global    int
 	active    map[string]int
@@ -127,6 +129,10 @@ func (s *Server) DeviceHandler() http.Handler {
 		device, e := s.device(r)
 		if e != nil {
 			Error(w, 401, e.Error())
+			return
+		}
+		if r.URL.Path == "/device/renew" && r.Method == "POST" {
+			s.renew(w, r, device)
 			return
 		}
 		if r.URL.Path == "/device/services" && r.Method == "GET" {
@@ -237,6 +243,16 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, e = tx.Exec("UPDATE invitations SET used=1 WHERE hash=?", store.Hash(in.Secret)); e != nil {
+		Error(w, 503, "storage_unavailable")
+		return
+	}
+	block, _ := pem.Decode(cert)
+	parsed, e := x509.ParseCertificate(block.Bytes)
+	if e != nil {
+		Error(w, 500, "certificate_failed")
+		return
+	}
+	if _, e = tx.Exec("UPDATE devices SET certificate_serial=?,certificate_expires=? WHERE id=?", parsed.SerialNumber.String(), parsed.NotAfter.Unix(), id); e != nil {
 		Error(w, 503, "storage_unavailable")
 		return
 	}

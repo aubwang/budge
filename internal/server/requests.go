@@ -327,6 +327,20 @@ func (s *Server) dispatch(ctx context.Context, id string) {
 		s.finishTx(tx, id, "cancelled", "authorization_changed_or_expired", nil)
 		return
 	}
+	var mode string
+	if e = tx.QueryRow("SELECT mode FROM permissions WHERE id=?", snap.PermissionID).Scan(&mode); e != nil {
+		return
+	}
+	if mode == "approval_required" {
+		var n int
+		if e = tx.QueryRow("SELECT count(*) FROM approvals a JOIN requests r ON r.id=a.request_id WHERE r.id=? AND a.decision='approve' AND a.digest=r.snapshot_digest", id).Scan(&n); e != nil {
+			return
+		}
+		if n != 1 {
+			s.finishTx(tx, id, "failed", "approval_digest_mismatch", nil)
+			return
+		}
+	}
 	if _, e = tx.Exec("UPDATE requests SET status='dispatching' WHERE id=? AND status='queued'", id); e != nil {
 		return
 	}
@@ -336,6 +350,8 @@ func (s *Server) dispatch(ctx context.Context, id string) {
 	if e = tx.Commit(); e != nil {
 		return
 	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 	secret, e := s.Store.Decrypt(snap.CredentialRef, svc.Credential)
 	if e != nil {
 		s.finish(id, "failed", "credential_unavailable", nil)
@@ -487,4 +503,43 @@ func cancelRequests(tx *sql.Tx, column, id, reason string) error {
 		}
 	}
 	return nil
+}
+
+// RecoverRestored invalidates access before a restored database may serve traffic.
+// It cannot reconstruct effects or deduplication keys absent from that backup.
+func (s *Server) RecoverRestored() error {
+	tx, e := s.Store.DB.Begin()
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	rows, e := tx.Query("SELECT id FROM devices")
+	if e != nil {
+		return e
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if e = rows.Scan(&id); e != nil {
+			rows.Close()
+			return e
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for _, id := range ids {
+		if _, e = tx.Exec("UPDATE devices SET revoked=1 WHERE id=?", id); e != nil {
+			return e
+		}
+		if e = cancelRequests(tx, "device_id", id, "restored_database_recovery"); e != nil {
+			return e
+		}
+	}
+	if _, e = tx.Exec("DELETE FROM sessions"); e != nil {
+		return e
+	}
+	if e = store.Audit(tx, "", "", "restored_database_access_invalidated", ""); e != nil {
+		return e
+	}
+	return tx.Commit()
 }

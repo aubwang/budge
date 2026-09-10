@@ -117,13 +117,24 @@ func (s *Server) initTLS(serverURL string) error {
 	return e
 }
 func (s *Server) TLSConfig() (*tls.Config, error) {
-	cert, e := tls.X509KeyPair(s.ca.Leaf, s.ca.LeafKey)
+	cert, e := s.currentCertificate()
 	if e != nil {
 		return nil, e
 	}
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(s.ca.Root)
-	return &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{cert}, ClientAuth: tls.VerifyClientCertIfGiven, ClientCAs: pool}, nil
+	cfg := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{cert}, ClientAuth: tls.VerifyClientCertIfGiven, ClientCAs: pool}
+	cfg.GetConfigForClient = func(*tls.ClientHelloInfo) (*tls.Config, error) {
+		cert, e := s.currentCertificate()
+		if e != nil {
+			return nil, e
+		}
+		next := cfg.Clone()
+		next.GetConfigForClient = nil
+		next.Certificates = []tls.Certificate{cert}
+		return next, nil
+	}
+	return cfg, nil
 }
 func (s *Server) issue(device string, csrDER []byte) ([]byte, error) {
 	csr, e := x509.ParseCertificateRequest(csrDER)

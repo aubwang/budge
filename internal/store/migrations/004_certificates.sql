@@ -1,0 +1,2 @@
+ALTER TABLE devices ADD COLUMN certificate_serial TEXT NOT NULL DEFAULT '';
+ALTER TABLE devices ADD COLUMN certificate_expires INTEGER NOT NULL DEFAULT 0;

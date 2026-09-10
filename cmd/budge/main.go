@@ -63,6 +63,7 @@ func run() error {
 	flags := flag.NewFlagSet(os.Args[1], flag.ContinueOnError)
 	switch os.Args[1] {
 	case "server":
+		recoverRestored := flags.Bool("recover-restored", false, "invalidate all device access and undispatched requests before serving a restored database")
 		dbPath := flags.String("db", "state/budge.db", "SQLite path")
 		public := flags.String("url", "https://localhost:8443", "externally reachable HTTPS origin")
 		deviceAddr := flags.String("device-listen", "127.0.0.1:8443", "device TLS bind address")
@@ -99,6 +100,11 @@ func run() error {
 		s, e := server.New(db, *public, *ownerAddr, password)
 		if e != nil {
 			return e
+		}
+		if *recoverRestored {
+			if e = s.RecoverRestored(); e != nil {
+				return e
+			}
 		}
 		tc, e := s.TLSConfig()
 		if e != nil {
@@ -178,11 +184,22 @@ func run() error {
 		if e != nil {
 			return e
 		}
-		handler, close, e := client.Connector(id, *listen)
+		tr, e := client.Transport(id)
 		if e != nil {
 			return e
 		}
-		defer close()
+		defer tr.CloseIdleConnections()
+		renewal, e := client.NewRenewal(id, tr)
+		if e != nil {
+			return e
+		}
+		if e = renewal.Refresh(ctx, *path, pass); e != nil {
+			return e
+		}
+		handler, e := client.ConnectorTransport(id, *listen, tr)
+		if e != nil {
+			return e
+		}
 		l, e := net.Listen("tcp", *listen)
 		if e != nil {
 			return e
@@ -194,12 +211,28 @@ func run() error {
 			return e
 		}
 		defer sl.Close()
-		sh, closeSocket, e := client.SocketHandler(id)
-		if e != nil {
-			return e
-		}
-		defer closeSocket()
-		return serve(ctx, []net.Listener{l, sl}, []http.Handler{handler, sh})
+		sh := client.SocketTransport(id, tr)
+		renewCtx, cancelRenew := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			ticker := time.NewTicker(time.Hour)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-renewCtx.Done():
+					return
+				case <-ticker.C:
+					if e := renewal.Refresh(renewCtx, *path, pass); e != nil {
+						fmt.Fprintln(os.Stderr, "Certificate renewal needs attention:", e)
+					}
+				}
+			}
+		}()
+		e = serve(ctx, []net.Listener{l, sl}, []http.Handler{handler, sh})
+		cancelRenew()
+		<-done
+		return e
 	case "mcp":
 		socket := flags.String("socket", filepath.Join(filepath.Dir(defaultIdentity()), "connect.sock"), "private connector socket")
 		if e := flags.Parse(os.Args[2:]); e != nil {
