@@ -32,11 +32,15 @@ func Path(p string) bool {
 	return true
 }
 func Method(m string) bool {
-	switch m {
-	case "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS":
-		return true
+	if m == "" || m == "*" || len(m) > 64 || strings.EqualFold(m, "CONNECT") || strings.EqualFold(m, "TRACE") {
+		return false
 	}
-	return false
+	for _, c := range []byte(m) {
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", rune(c))) {
+			return false
+		}
+	}
+	return true
 }
 func Base(raw string) (*url.URL, error) {
 	u, e := url.Parse(raw)

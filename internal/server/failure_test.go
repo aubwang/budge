@@ -540,3 +540,26 @@ func TestSlice4GlobalLimitAndAuditExclusion(t *testing.T) {
 		}
 	}
 }
+func TestSlice4EscapedResultRemainsRetrievable(t *testing.T) {
+	payload := strings.Repeat("\x00", 1<<20)
+	h := newHarness(t, func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		w.WriteHeader(200)
+		io.WriteString(w, payload)
+	})
+	h.addService()
+	id := h.enroll()
+	h.grant(id, "/write")
+	request := submitFixture(t, h, id, "control-result")
+	h.s.dispatch(context.Background(), request)
+	session := h.mcp(id)
+	out := tool(t, session, "budge_request_status", requests.StatusInput{RequestID: request})
+	result := out["result"].(map[string]any)
+	if result["encoding"] != "base64" {
+		t.Fatal("expanded text result must use bounded encoding")
+	}
+	b, e := base64.StdEncoding.DecodeString(result["body"].(string))
+	if e != nil || string(b) != payload || result["result_truncated"] != false {
+		t.Fatal("control-byte result lost through MCP")
+	}
+}

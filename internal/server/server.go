@@ -56,7 +56,11 @@ func New(db *store.Store, serverURL, ownerHost, initialPassword string) (*Server
 func Error(w http.ResponseWriter, status int, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code}})
+	detail := map[string]string{"code": code}
+	if code == "approval_required" {
+		detail["message"] = "Use budge_request through MCP to ask for individual approval."
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": detail})
 }
 func JSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

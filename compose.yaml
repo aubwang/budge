@@ -1,0 +1,18 @@
+services:
+  budge:
+    build: .
+    image: budge-fresh:local
+    stdin_open: true
+    tty: true
+    init: true
+    restart: "no"
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8443:8443"
+    volumes:
+      - budge-data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+volumes:
+  budge-data:

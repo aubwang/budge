@@ -11,7 +11,7 @@ import (
 )
 
 func TestDestinationConfinement(t *testing.T) {
-	for _, ip := range []string{"127.0.0.1", "::ffff:127.0.0.1", "169.254.169.254", "fe80::1", "224.0.0.1", "::", "0.0.0.0", "10.0.0.1", "192.168.1.1", "fd00::1"} {
+	for _, ip := range []string{"127.0.0.1", "::ffff:127.0.0.1", "169.254.169.254", "100.100.100.200", "64:ff9b::a9fe:a9fe", "fe80::1", "224.0.0.1", "::", "0.0.0.0", "10.0.0.1", "192.168.1.1", "fd00::1"} {
 		if AllowedAddress(netip.MustParseAddr(ip), "") {
 			t.Errorf("blocked address allowed %s", ip)
 		}

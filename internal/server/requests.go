@@ -374,7 +374,8 @@ func (s *Server) dispatch(ctx context.Context, id string) {
 	if e != nil {
 		result.Incomplete = true
 	}
-	if utf8.Valid(b) {
+	quoted, _ := json.Marshal(string(b))
+	if utf8.Valid(b) && len(quoted) <= ((len(b)*4)/3)+16 {
 		result.Body = string(b)
 	} else {
 		result.Body = base64.StdEncoding.EncodeToString(b)

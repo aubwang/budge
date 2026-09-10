@@ -14,6 +14,7 @@ import (
 	"budge/internal/access"
 	"budge/internal/store"
 	"budge/internal/upstream"
+	"budge/web"
 )
 
 func itoa(i int) string { return strconv.Itoa(i) }
@@ -27,15 +28,12 @@ type page struct {
 	Permissions               [][8]string
 }
 
-var ownerPage = template.Must(template.New("owner").Parse(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Budge</title><style>body{font:16px system-ui;max-width:950px;margin:3rem auto;padding:0 1rem;background:#f5f5ef;color:#172c27}section{background:white;border:1px solid #d0d8cf;padding:1.5rem;margin:1.5rem 0;border-radius:12px}label{display:block;margin:.7rem 0}input,select,textarea,button{font:inherit;padding:.5rem;max-width:95%}input{min-width:20rem}button{background:#173f34;color:white;border:0;border-radius:4px;cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere}small{display:block;color:#52635c}</style><h1>Budge</h1><p>Device access. Credentials stay here.</p>{{if .Message}}<p role="status">{{.Message}}</p>{{end}}{{if not .LoggedIn}}<section><h2>Owner sign in</h2><form method="post" action="/login"><input type="hidden" name="csrf" value="{{.CSRF}}"><label>Password <input name="password" type="password" required autocomplete="current-password"></label><button>Sign in</button></form></section>{{else}}
-<section><h2>Requests</h2><p>Review actual HTTP content before approving. Refresh to see new requests.</p>{{range .Inbox}}<p><a href="/request?id={{index . 0}}">{{index . 0}}</a> · {{index . 1}} · {{index . 2}} · {{index . 3}}</p>{{else}}<p>No requests.</p>{{end}}</section><section><h2>Services</h2>{{range .Services}}<p><b>{{.ID}}</b> — {{.Label}} · revision {{.Revision}} · {{.BaseURL}} · credential: {{.Auth}} (write only)</p><form method="post" action="/disable-service"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{.ID}}"><button>Disable service</button></form>{{else}}<p>No services yet.</p>{{end}}<form method="post" action="/service"><input type="hidden" name="csrf" value="{{.CSRF}}"><label>Service ID <input name="id" required placeholder="openrouter"></label><label>Account label <input name="label" required></label><label>HTTPS base URL <input name="base_url" required placeholder="https://openrouter.ai/api"></label><label>Authentication <select name="auth"><option>bearer</option><option>none</option><option>header</option><option>basic</option></select></label><label>Credential <input name="credential" type="password" autocomplete="new-password"><small>For basic authentication, enter username:password.</small></label><label>Credential header (header auth only) <input name="auth_header"></label><label>Allowed request headers <input name="request_headers" value="Accept, Content-Type"></label><label>Allowed response headers <input name="response_headers" value="Content-Type, Content-Encoding, Retry-After"></label><label>Private destination CIDR (optional) <input name="private_cidr"></label><button>Add service</button> <button formaction="/service-revise">Replace existing service and invalidate permissions</button><small>Replacement requires the credential again. Old permissions become obsolete. Review and reissue access explicitly.</small></form></section>
-<section><h2>Devices</h2>{{range .Devices}}<p>{{index . 1}} · <code>{{index . 0}}</code></p><form method="post" action="/revoke-device"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{index . 0}}"><button>Revoke device</button></form>{{end}}<form method="post" action="/invite"><input type="hidden" name="csrf" value="{{.CSRF}}"><label>Device label <input name="label" required></label><button>Create 5-minute invitation</button></form>{{if .Invitation}}<p>Transfer privately and paste at the hidden enrollment prompt. This invitation works once.</p><textarea readonly rows="8" cols="80">{{.Invitation}}</textarea>{{end}}</section>
-<section><h2>Permissions</h2>{{range .Permissions}}<p>{{index . 1}} → {{index . 2}} · {{index . 3}} {{index . 4}} · {{index . 5}} · {{index . 6}} · {{index . 7}}</p><form method="post" action="/revoke-permission"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="id" value="{{index . 0}}"><button>Revoke permission</button></form>{{end}}<form method="post" action="/permission"><input type="hidden" name="csrf" value="{{.CSRF}}"><label>Device <select name="device">{{range .Devices}}<option value="{{index . 0}}">{{index . 1}}</option>{{end}}</select></label><label>Service <select name="service">{{range .Services}}<option>{{.ID}}</option>{{end}}</select></label><label>Methods (comma separated) <input name="method" value="POST" required></label><label>Path <input name="path" required placeholder="/v1/chat/completions"></label><label>Path match <select name="path_kind"><option value="exact">Exact</option><option value="subtree">Subtree</option></select></label><label>Access <select name="mode"><option value="standing">Standing permission</option><option value="approval_required">Individual approval required</option></select></label><label>Expiry (optional RFC3339 UTC time) <input name="expires" placeholder="2026-12-01T00:00:00Z"></label><small>Blank expiry means until revoked. Query values and body fields are unrestricted.</small><button>Grant permission</button></form></section><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button>Sign out</button></form>{{end}}</html>`))
+var ownerPage = template.Must(template.New("owner.html").ParseFS(web.Files, "owner.html"))
 
 func (s *Server) OwnerHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		origin := "http://" + s.OwnerHost
@@ -44,6 +42,10 @@ func (s *Server) OwnerHandler() http.Handler {
 		}
 		if r.Host != s.OwnerHost || (r.Header.Get("Origin") != "" && r.Header.Get("Origin") != origin) || r.Header.Get("Sec-Fetch-Site") == "cross-site" {
 			Error(w, 403, "owner_origin_rejected")
+			return
+		}
+		if r.Method == "GET" && (r.URL.Path == "/static/style.css" || r.URL.Path == "/static/poll.js") {
+			http.StripPrefix("/static/", http.FileServer(http.FS(web.Files))).ServeHTTP(w, r)
 			return
 		}
 		var owner, csrf string
@@ -59,7 +61,7 @@ func (s *Server) OwnerHandler() http.Handler {
 			s.review(w, r, csrf)
 			return
 		}
-		if r.Method == "GET" && r.URL.Path == "/" {
+		if r.Method == "GET" && (r.URL.Path == "/" || r.URL.Path == "/inbox") {
 			if owner == "" {
 				csrf = store.ID("")
 				http.SetCookie(w, &http.Cookie{Name: "budge_login_csrf", Value: csrf, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil, MaxAge: 600})
@@ -155,7 +157,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) render(w http.ResponseWriter, p page) {
 	if p.LoggedIn {
-		rows, e := s.Store.DB.Query("SELECT id,device_id,service_id,status FROM requests ORDER BY created DESC,id LIMIT 100")
+		rows, e := s.Store.DB.Query("SELECT id,device_id,service_id,status FROM requests ORDER BY CASE status WHEN 'pending_approval' THEN 0 WHEN 'queued' THEN 1 WHEN 'dispatching' THEN 2 ELSE 3 END,created DESC,id LIMIT 100")
 		if e == nil {
 			for rows.Next() {
 				var v [4]string
@@ -165,11 +167,14 @@ func (s *Server) render(w http.ResponseWriter, p page) {
 			}
 			rows.Close()
 		}
-		rows, e = s.Store.DB.Query("SELECT id,label,base_url,revision,auth FROM services WHERE enabled=1 ORDER BY id")
+		rows, e = s.Store.DB.Query("SELECT id,label,base_url,revision,auth,private_cidr,request_headers,response_headers FROM services WHERE enabled=1 ORDER BY id")
 		if e == nil {
 			for rows.Next() {
 				var v access.Service
-				if rows.Scan(&v.ID, &v.Label, &v.BaseURL, &v.Revision, &v.Auth) == nil {
+				var req, res string
+				if rows.Scan(&v.ID, &v.Label, &v.BaseURL, &v.Revision, &v.Auth, &v.PrivateCIDR, &req, &res) == nil {
+					json.Unmarshal([]byte(req), &v.RequestHeaders)
+					json.Unmarshal([]byte(res), &v.ResponseHeaders)
 					p.Services = append(p.Services, v)
 				}
 			}
@@ -231,6 +236,9 @@ func (s *Server) addService(owner string, r *http.Request) error {
 		return errors.New("unsupported authentication")
 	}
 
+	if auth != "header" {
+		header = ""
+	}
 	req, err := headerList(f.Get("request_headers"), []string{"Accept", "Content-Type"}, header)
 	if err != nil {
 		return err

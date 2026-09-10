@@ -1,0 +1,89 @@
+package server
+
+import (
+	"encoding/json"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"budge/internal/client"
+)
+
+func TestExistingCurlClient(t *testing.T) {
+	curl, e := exec.LookPath("curl")
+	if e != nil {
+		t.Skip("curl absent")
+	}
+	h := newHarness(t, nil)
+	h.addService()
+	id := h.enroll()
+	h.grant(id, "/write")
+	conn := h.connector(id)
+	cmd := exec.Command(curl, "--silent", "--show-error", "--fail-with-body", "--request", "POST", "--header", "Authorization: Bearer budge-local", "--data-binary", "synthetic-curl-body", conn.URL+"/s/mock/write")
+	out, e := cmd.CombinedOutput()
+	if e != nil || string(out) != "synthetic-curl-body" || h.hits.Load() != 1 {
+		t.Fatalf("curl roundtrip failed %v %s", e, out)
+	}
+	version, _ := exec.Command(curl, "--version").Output()
+	t.Log(strings.Split(string(version), "\n")[0])
+}
+func TestExistingOpenCodeMCPHost(t *testing.T) {
+	binary := os.Getenv("BUDGE_OPENCODE_BIN")
+	if binary == "" {
+		t.Skip("opt-in existing OpenCode host")
+	}
+	h := newHarness(t, nil)
+	id := h.enroll()
+	path := filepath.Join(h.dir, "socket", "connect.sock")
+	l, e := client.ListenSocket(path)
+	if e != nil {
+		t.Fatal(e)
+	}
+	handler, close, e := client.SocketHandler(id)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer close()
+	srv := &http.Server{Handler: handler}
+	go srv.Serve(l)
+	defer srv.Close()
+	root, e := filepath.Abs("../..")
+	if e != nil {
+		t.Fatal(e)
+	}
+	config := map[string]any{"$schema": "https://opencode.ai/config.json", "mcp": map[string]any{"budge": map[string]any{"type": "local", "command": []string{filepath.Join(root, "bin", "budge-linux-amd64"), "mcp", "--socket", path}, "enabled": true}}}
+	routing, e := client.OpenCodeConfig("127.0.0.1:7777", "openrouter")
+	if e != nil {
+		t.Fatal(e)
+	}
+	var fragment map[string]any
+	if e = json.Unmarshal(routing, &fragment); e != nil {
+		t.Fatal(e)
+	}
+	config["provider"] = fragment["provider"]
+	configPath := filepath.Join(h.dir, "opencode.json")
+	if e = os.WriteFile(configPath, mustJSON(config), 0600); e != nil {
+		t.Fatal(e)
+	}
+	cmd := exec.Command(binary, "mcp", "list")
+	cmd.Dir = h.dir
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "XDG_CONFIG_HOME=" + filepath.Join(h.dir, "config"), "XDG_DATA_HOME=" + filepath.Join(h.dir, "data"), "XDG_CACHE_HOME=" + filepath.Join(h.dir, "cache"), "XDG_STATE_HOME=" + filepath.Join(h.dir, "state"), "OPENCODE_CONFIG=" + configPath, "OPENCODE_DISABLE_AUTOUPDATE=true", "OPENCODE_DISABLE_MODELS_FETCH=true", "OPENCODE_DISABLE_PROJECT_CONFIG=true"}
+	out, e := cmd.CombinedOutput()
+	if e != nil || !strings.Contains(string(out), "connected") {
+		t.Fatalf("isolated MCP host did not connect: %v %s", e, out)
+	}
+	debug := exec.Command(binary, "debug", "config")
+	debug.Dir = cmd.Dir
+	debug.Env = cmd.Env
+	resolved, e := debug.Output()
+	if e != nil {
+		t.Fatal("OpenCode could not load generated provider configuration")
+	}
+	if !strings.Contains(string(resolved), "http://127.0.0.1:7777/s/openrouter/v1") || !strings.Contains(string(resolved), "budge-local") {
+		t.Fatal("generated routing missing from resolved OpenCode config")
+	}
+	t.Log("OpenCode MCP host reports Budge connected; isolated XDG directories, no provider credentials.")
+}

@@ -167,7 +167,7 @@ func Transport(id Identity) (*http.Transport, error) {
 			return nil, e
 		}
 		return &upstream.IdleConn{Conn: c}, nil
-	}, Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, Certificates: []tls.Certificate{cert}}, DisableCompression: true, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 30 * time.Second}, nil
+	}, Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, Certificates: []tls.Certificate{cert}}, DisableCompression: true, MaxResponseHeaderBytes: 32 << 10, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 30 * time.Second}, nil
 }
 func Connector(id Identity, host string) (http.Handler, func(), error) {
 	tr, e := Transport(id)

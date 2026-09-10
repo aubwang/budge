@@ -67,6 +67,12 @@ func AllowedAddress(a netip.Addr, cidr string) bool {
 	if !a.IsValid() || a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() || a.IsMulticast() || a.IsUnspecified() {
 		return false
 	}
+	// Shared/reserved address space includes non-link-local cloud metadata.
+	for _, raw := range []string{"100.64.0.0/10", "192.0.0.0/24", "198.18.0.0/15", "240.0.0.0/4", "64:ff9b::/96", "64:ff9b:1::/48"} {
+		if netip.MustParsePrefix(raw).Contains(a) {
+			return false
+		}
+	}
 	if a.IsPrivate() {
 		p, e := netip.ParsePrefix(cidr)
 		return e == nil && p.Contains(a)
@@ -78,7 +84,7 @@ func AllowedAddress(a netip.Addr, cidr string) bool {
 // on which Go's Transport may automatically replay a request. No proxy, redirects,
 // transparent decompression, or request GetBody replay function is used.
 func Transport(s access.Service) *http.Transport {
-	return &http.Transport{Proxy: nil, DisableCompression: true, DisableKeepAlives: true, ForceAttemptHTTP2: false, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 30 * time.Second, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+	return &http.Transport{Proxy: nil, DisableCompression: true, MaxResponseHeaderBytes: 32 << 10, DisableKeepAlives: true, ForceAttemptHTTP2: false, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 30 * time.Second, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, e := net.SplitHostPort(address)
 		if e != nil {
 			return nil, e

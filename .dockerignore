@@ -1,0 +1,7 @@
+.git
+bin
+state
+budge
+*.db
+*.db-*
+*.identity

@@ -43,3 +43,14 @@ func TestFixedDestination(t *testing.T) {
 		t.Fatalf("target changed: %s %v", got, e)
 	}
 }
+
+func TestExplicitCustomMethods(t *testing.T) {
+	if !Method("PROPFIND") || !Method("REPORT") {
+		t.Fatal("general HTTP methods rejected")
+	}
+	for _, m := range []string{"CONNECT", "connect", "TRACE", "*", "GET POST", "GET\r\nX"} {
+		if Method(m) {
+			t.Fatalf("unsafe method %q accepted", m)
+		}
+	}
+}

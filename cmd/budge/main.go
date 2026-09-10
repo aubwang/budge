@@ -67,15 +67,24 @@ func run() error {
 		dbPath := flags.String("db", "state/budge.db", "SQLite path")
 		public := flags.String("url", "https://localhost:8443", "externally reachable HTTPS origin")
 		deviceAddr := flags.String("device-listen", "127.0.0.1:8443", "device TLS bind address")
-		ownerAddr := flags.String("owner-listen", "127.0.0.1:8080", "loopback owner bind address")
+		ownerAddr := flags.String("owner-listen", "127.0.0.1:8080", "owner bind address")
+		ownerHost := flags.String("owner-host", "", "expected loopback owner Host, required for container binding")
+		containerMode := flags.Bool("container", false, "allow internal owner bind on 0.0.0.0; publish its host port on loopback only")
 		unlockFD := flags.Int("unlock-fd", -1, "dedicated unlock input FD")
 		ownerFD := flags.Int("owner-password-fd", -1, "dedicated initial owner password FD")
 		if e := flags.Parse(os.Args[2:]); e != nil {
 			return e
 		}
 		h, _, e := net.SplitHostPort(*ownerAddr)
-		if e != nil || h != "127.0.0.1" {
-			return errors.New("owner listener must bind 127.0.0.1")
+		if e != nil || (h != "127.0.0.1" && !(h == "0.0.0.0" && *containerMode)) {
+			return errors.New("owner listener must bind loopback, or explicitly use container mode")
+		}
+		if *ownerHost == "" {
+			*ownerHost = *ownerAddr
+		}
+		expectedHost, _, e := net.SplitHostPort(*ownerHost)
+		if e != nil || expectedHost != "127.0.0.1" {
+			return errors.New("owner-host must be an explicit 127.0.0.1 host and port")
 		}
 		unlock, e := secret("Server unlock secret", *unlockFD)
 		if e != nil {
@@ -97,7 +106,7 @@ func run() error {
 				return e
 			}
 		}
-		s, e := server.New(db, *public, *ownerAddr, password)
+		s, e := server.New(db, *public, *ownerHost, password)
 		if e != nil {
 			return e
 		}
@@ -120,7 +129,7 @@ func run() error {
 			return e
 		}
 		defer ol.Close()
-		fmt.Fprintln(os.Stderr, "Owner UI: http://"+*ownerAddr)
+		fmt.Fprintln(os.Stderr, "Owner UI: http://"+*ownerHost)
 		workerCtx, cancelWorker := context.WithCancel(ctx)
 		done := make(chan struct{})
 		go func() { defer close(done); s.RunWorker(workerCtx) }()
