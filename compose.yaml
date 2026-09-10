@@ -7,8 +7,8 @@ services:
     init: true
     restart: "no"
     ports:
-      - "127.0.0.1:8080:8080"
-      - "127.0.0.1:8443:8443"
+      - "127.0.0.1:18780:18780"
+      - "127.0.0.1:18781:18781"
     volumes:
       - budge-data:/data
     read_only: true

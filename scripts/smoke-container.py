@@ -38,7 +38,7 @@ def main():
     process = connector = None
     transcript = bytearray()
     try:
-        args = ["docker", "run", "--rm", "-it", "--name", name, "--init", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "-p", f"127.0.0.1:{owner_port}:8080", "-p", f"127.0.0.1:{device_port}:8443", "-v", volume + ":/data", "budge-fresh:local", "server", "--container", "--db", "/data/budge.db", "--owner-listen", "0.0.0.0:8080", "--owner-host", f"127.0.0.1:{owner_port}", "--device-listen", "0.0.0.0:8443", "--url", f"https://127.0.0.1:{device_port}"]
+        args = ["docker", "run", "--rm", "-it", "--name", name, "--init", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "-p", f"127.0.0.1:{owner_port}:18780", "-p", f"127.0.0.1:{device_port}:18781", "-v", volume + ":/data", "budge-fresh:local", "server", "--container", "--db", "/data/budge.db", "--owner-listen", "0.0.0.0:18780", "--owner-host", f"127.0.0.1:{owner_port}", "--device-listen", "0.0.0.0:18781", "--url", f"https://127.0.0.1:{device_port}"]
         process = subprocess.Popen(args, stdin=slave, stdout=slave, stderr=slave)
         os.close(slave)
         def prompt(expected):

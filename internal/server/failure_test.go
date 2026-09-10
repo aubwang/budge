@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -88,6 +89,100 @@ func TestSlice4ConnectionLostAfterReceipt(t *testing.T) {
 	h.s.dispatch(context.Background(), request)
 	if h.hits.Load() != 1 {
 		t.Fatalf("transport or restart replayed: %d", h.hits.Load())
+	}
+}
+
+func TestDispatchFailureBeforeSend(t *testing.T) {
+	for _, failure := range []string{"blocked_destination", "dns_failure", "tls_failure", "cancelled_before_send"} {
+		t.Run(failure, func(t *testing.T) {
+			h := newHarness(t, nil)
+			h.addService()
+			id := h.enroll()
+			h.approvalScope(id)
+			request := submitFixture(t, h, id, "pre-send-failure")
+			out, err := h.s.RequestStatus(id.DeviceID, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.post("/decision", url.Values{"id": {request}, "digest": {out.Digest}, "decision": {"approve"}}, 200)
+			workingTransport := h.s.transport
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			switch failure {
+			case "blocked_destination":
+				h.s.transport = upstream.Transport
+			case "dns_failure":
+				h.s.transport = func(s access.Service) *http.Transport {
+					tr := upstream.Transport(s)
+					tr.DialContext = func(context.Context, string, string) (net.Conn, error) {
+						return nil, &net.DNSError{Err: "synthetic lookup failure", Name: "mock.invalid", IsNotFound: true}
+					}
+					return tr
+				}
+			case "tls_failure":
+				h.s.transport = func(s access.Service) *http.Transport {
+					tr := workingTransport(s)
+					tr.TLSClientConfig = &tls.Config{RootCAs: x509.NewCertPool()}
+					return tr
+				}
+			case "cancelled_before_send":
+				cancel()
+			}
+			h.s.dispatch(ctx, request)
+			out = h.waitStatus(id, request, "failed")
+			if out.Reason != "request_not_sent" || strings.Contains(out.NextAction, "Check the provider") {
+				t.Fatalf("misleading pre-send outcome: %+v", out)
+			}
+			// Restoring connectivity, duplicate submission, worker wakeups and recovery
+			// must not turn a definite failure into another automatic attempt.
+			h.s.transport = workingTransport
+			if duplicate := submitFixture(t, h, id, "pre-send-failure"); duplicate != request {
+				t.Fatal("duplicate submission created a new request")
+			}
+			if err := h.s.recoverDispatches(); err != nil {
+				t.Fatal(err)
+			}
+			h.s.dispatch(context.Background(), request)
+			h.waitStatus(id, request, "failed")
+			if h.hits.Load() != 0 {
+				t.Fatal("failed request reached upstream or was retried")
+			}
+			var n int
+			if err := h.db.DB.QueryRow("SELECT count(*) FROM audit WHERE entity_id=? AND kind='request_failed'", request).Scan(&n); err != nil || n != 1 {
+				t.Fatalf("missing or duplicate failure audit: %d, %v", n, err)
+			}
+		})
+	}
+}
+
+func TestOwnerRejectsMissingRevocationTargets(t *testing.T) {
+	h := newHarness(t, nil)
+	h.addService()
+	id := h.enroll()
+	h.grant(id, "/write")
+	for _, action := range []struct{ path, message string }{
+		{"/revoke-permission", "permission not found"},
+		{"/disable-service", "service not found"},
+	} {
+		for _, target := range []string{"", "nonexistent"} {
+			var before, after int
+			if err := h.db.DB.QueryRow("SELECT count(*) FROM audit").Scan(&before); err != nil {
+				t.Fatal(err)
+			}
+			body := h.post(action.path, url.Values{"id": {target}}, 400)
+			if !strings.Contains(body, action.message) {
+				t.Fatalf("missing actionable error for %s", action.path)
+			}
+			if err := h.db.DB.QueryRow("SELECT count(*) FROM audit").Scan(&after); err != nil || after != before {
+				t.Fatalf("failed action changed audit history: %d -> %d, %v", before, after, err)
+			}
+		}
+	}
+	request := submitFixture(t, h, id, "after-missing-target")
+	h.s.dispatch(context.Background(), request)
+	h.waitStatus(id, request, "completed")
+	if h.hits.Load() != 1 {
+		t.Fatal("missing target action affected existing access")
 	}
 }
 func TestSlice4CrashRecoveryNeverResends(t *testing.T) {
@@ -281,7 +376,7 @@ func TestCrashDispatchHelper(t *testing.T) {
 		os.Exit(2)
 	}
 	defer db.Close()
-	s, e := New(db, os.Getenv("BUDGE_CRASH_URL"), "127.0.0.1:8080", "")
+	s, e := New(db, os.Getenv("BUDGE_CRASH_URL"), "127.0.0.1:18780", "")
 	if e != nil {
 		os.Exit(3)
 	}

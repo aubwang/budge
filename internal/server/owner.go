@@ -377,8 +377,16 @@ func (s *Server) revokePermission(owner, id string) error {
 		return e
 	}
 	defer tx.Rollback()
-	if _, e = tx.Exec("UPDATE permissions SET revoked=1 WHERE id=?", id); e != nil {
+	res, e := tx.Exec("UPDATE permissions SET revoked=1 WHERE id=?", id)
+	if e != nil {
 		return e
+	}
+	n, e := res.RowsAffected()
+	if e != nil {
+		return e
+	}
+	if n == 0 {
+		return errors.New("permission not found")
 	}
 	if e = cancelRequests(tx, "permission_id", id, "permission_revoked"); e != nil {
 		return e
@@ -394,8 +402,16 @@ func (s *Server) disableService(owner, id string) error {
 		return e
 	}
 	defer tx.Rollback()
-	if _, e = tx.Exec("UPDATE services SET enabled=0,revision=revision+1 WHERE id=?", id); e != nil {
+	res, e := tx.Exec("UPDATE services SET enabled=0,revision=revision+1 WHERE id=?", id)
+	if e != nil {
 		return e
+	}
+	n, e := res.RowsAffected()
+	if e != nil {
+		return e
+	}
+	if n == 0 {
+		return errors.New("service not found")
 	}
 	if e = cancelRequests(tx, "service_id", id, "service_disabled"); e != nil {
 		return e

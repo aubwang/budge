@@ -65,9 +65,9 @@ func run() error {
 	case "server":
 		recoverRestored := flags.Bool("recover-restored", false, "invalidate all device access and undispatched requests before serving a restored database")
 		dbPath := flags.String("db", "state/budge.db", "SQLite path")
-		public := flags.String("url", "https://localhost:8443", "externally reachable HTTPS origin")
-		deviceAddr := flags.String("device-listen", "127.0.0.1:8443", "device TLS bind address")
-		ownerAddr := flags.String("owner-listen", "127.0.0.1:8080", "owner bind address")
+		public := flags.String("url", "https://localhost:18781", "externally reachable HTTPS origin")
+		deviceAddr := flags.String("device-listen", "127.0.0.1:18781", "device TLS bind address")
+		ownerAddr := flags.String("owner-listen", "127.0.0.1:18780", "owner bind address")
 		ownerHost := flags.String("owner-host", "", "expected loopback owner Host, required for container binding")
 		containerMode := flags.Bool("container", false, "allow internal owner bind on 0.0.0.0; publish its host port on loopback only")
 		unlockFD := flags.Int("unlock-fd", -1, "dedicated unlock input FD")
@@ -168,22 +168,12 @@ func run() error {
 		fmt.Fprintln(os.Stderr, "Enrolled device", id.DeviceID)
 		return nil
 	case "connect":
-		configOnly := flags.Bool("print-opencode-config", false, "print OpenRouter routing config without starting or unlocking")
-		service := flags.String("service", "openrouter", "service ID for generated config")
 		socket := flags.String("socket", filepath.Join(filepath.Dir(defaultIdentity()), "connect.sock"), "private MCP connector socket")
 		path := flags.String("identity", defaultIdentity(), "encrypted identity path")
-		listen := flags.String("listen", "127.0.0.1:7777", "loopback connector address")
+		listen := flags.String("listen", "127.0.0.1:18782", "loopback connector address")
 		passFD := flags.Int("passphrase-fd", -1, "dedicated identity passphrase input FD")
 		if e := flags.Parse(os.Args[2:]); e != nil {
 			return e
-		}
-		if *configOnly {
-			b, e := client.OpenCodeConfig(*listen, *service)
-			if e != nil {
-				return e
-			}
-			fmt.Println(string(b))
-			return nil
 		}
 		pass, e := secret("Local identity passphrase", *passFD)
 		if e != nil {

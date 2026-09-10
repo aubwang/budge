@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"budge/internal/access"
@@ -118,7 +121,24 @@ func (c *IdleConn) Write(b []byte) (int, error) {
 	c.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	return c.Conn.Write(b)
 }
-func Send(ctx context.Context, s access.Service, method, target string, h http.Header, body io.Reader, credential []byte, transport *http.Transport) (*http.Response, error) {
+
+// ErrNotSent marks a definite failure before a request could be transmitted.
+// It describes the outcome; it does not authorize an automatic retry.
+var ErrNotSent = errors.New("request was not sent")
+
+func Send(ctx context.Context, s access.Service, method, target string, h http.Header, body io.Reader, credential []byte, transport *http.Transport) (res *http.Response, err error) {
+	var gotConn atomic.Bool
+	defer func() {
+		if err != nil && !gotConn.Load() {
+			err = fmt.Errorf("%w: %w", ErrNotSent, err)
+		}
+	}()
+	// GotConn runs before Transport can write the request, after dialing and TLS.
+	// Once it fires, remain conservative even if a later write reports an error:
+	// a partial transmission may already have caused an upstream effect.
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		GotConn: func(httptrace.GotConnInfo) { gotConn.Store(true) },
+	})
 	r, e := http.NewRequestWithContext(ctx, method, target, body)
 	if e != nil {
 		return nil, e

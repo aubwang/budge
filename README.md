@@ -4,7 +4,7 @@ Configure an HTTP service on a trusted machine, enroll a device, and grant it sp
 
 Budge is one Go binary: a server with SQLite and a small owner UI, a local connector, enrollment, and an MCP stdio adapter. Ordinary HTTP clients use standing permissions by changing their base URL. Requests needing individual approval use MCP and remain pending until the owner reviews the actual HTTP request.
 
-**Status:** all five implementation slices are implemented and verified locally against synthetic TLS mocks. curl 8.5.0 completed an HTTP round trip; OpenCode 1.18.20 connected as an MCP host. Real OpenCode/OpenRouter generation remains untested and requires separate authorization. Nothing is published.
+**Status:** all five implementation slices are implemented and verified locally against synthetic TLS mocks. curl 8.5.0 completed an HTTP round trip; OpenCode 1.18.20 connected as an MCP host. Real OpenCode/OpenRouter generation remains untested and requires separate authorization. No release or container image has been published.
 
 ## Try the mock demo
 
@@ -31,9 +31,9 @@ docker compose build
 docker compose run --rm --service-ports budge
 ```
 
-Enter a server unlock secret and a separate initial owner password at the hidden prompts. Open `http://127.0.0.1:8080`. Create a service and invitation; enroll a device with `budge enroll`, grant its scope in the UI, then run `budge connect` on the device. An ordinary client uses `http://127.0.0.1:7777/s/SERVICE/PATH`. MCP hosts launch `budge mcp` while the connector is running.
+Enter a server unlock secret and a separate initial owner password at the hidden prompts. Open `http://127.0.0.1:18780`. Create a service and invitation; enroll a device with `budge enroll`, grant its scope in the UI, then run `budge connect` on the device. An ordinary client uses `http://127.0.0.1:18782/s/SERVICE/PATH`. MCP hosts launch `budge mcp` while the connector is running.
 
-The default composition publishes both ports on loopback. The [operator guide](docs/operator-guide.md) explains remote devices, SSH administration, encrypted identity files, dedicated secret input streams, OpenCode configuration, and recovery. Server and connector require unlocking after restart; there is no unattended-start promise.
+The default composition publishes both ports on loopback. The [operator guide](docs/operator-guide.md) explains remote devices, SSH administration, encrypted identity files, dedicated secret input streams, HTTP client configuration, and recovery. Server and connector require unlocking after restart; there is no unattended-start promise.
 
 ## Access and limits
 

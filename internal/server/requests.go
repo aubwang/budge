@@ -361,7 +361,11 @@ func (s *Server) dispatch(ctx context.Context, id string) {
 	defer tr.CloseIdleConnections()
 	res, e := upstream.Send(ctx, svc, snap.Method, snap.URL, snap.Headers, strings.NewReader(snap.Body), secret, tr)
 	if e != nil {
-		s.finish(id, "outcome_unknown", "connection_lost_check_provider", nil)
+		if errors.Is(e, upstream.ErrNotSent) {
+			s.finish(id, "failed", "request_not_sent", nil)
+		} else {
+			s.finish(id, "outcome_unknown", "connection_lost_check_provider", nil)
+		}
 		return
 	}
 	defer res.Body.Close()

@@ -10,4 +10,4 @@ COPY --from=build /budge /budge
 COPY --from=build --chown=65532:65532 /data /data
 WORKDIR /data
 ENTRYPOINT ["/budge"]
-CMD ["server", "--container", "--db", "/data/budge.db", "--owner-listen", "0.0.0.0:8080", "--owner-host", "127.0.0.1:8080", "--device-listen", "0.0.0.0:8443", "--url", "https://localhost:8443"]
+CMD ["server", "--container", "--db", "/data/budge.db", "--owner-listen", "0.0.0.0:18780", "--owner-host", "127.0.0.1:18780", "--device-listen", "0.0.0.0:18781", "--url", "https://localhost:18781"]
