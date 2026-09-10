@@ -12,7 +12,7 @@ Contract: BUILD_HANDOFF.md, copied verbatim from the requested handoff. No old i
 
 ## Evidence and decisions
 
-- Verification details: docs/verification.md. Reproducible setup/demo: docs/operator-guide.md. Architecture: DESIGN.md. Measurements: docs/measurements.md.
+- Verification details: docs/verification.md. Reproducible setup/demo: README.md. Architecture: DESIGN.md. Measurements: docs/measurements.md.
 - Go 1.27.1 was downloaded from the official distribution with checksum verification because Go was absent; it is under `~/.local/share/budge-toolchain/go/bin`. Dependencies and container bases are pinned. CI actions were checked against official releases and pinned by hash.
 - Full race suite, vet, formatting and Linux amd64/arm64 builds pass. ARM is cross-compiled, not executed on ARM hardware. Hosted CI has not run.
 - curl 8.5.0 completed a mock HTTP round trip. OpenCode 1.18.20 connected to Budge as an MCP host and loaded the generated provider routing fragment using isolated config/data/cache/state directories. Its usual launcher loads a real key, so only the underlying executable was used, without provider credentials.
@@ -51,3 +51,7 @@ At the owner's request, configured `origin` as `https://github.com/aubwang/budge
 ## Source push — 2026-09-10
 
 Owner authorized committing the follow-up fixes, generic client setup and port changes, then pushing the complete source history to `origin/main`. The remote was empty when checked. Validation remains the passing checks above; no runtime code changed afterward. Release/image publication and live-provider testing are still separate decisions.
+
+## README consolidation — 2026-09-10
+
+Combined the README and operator guide into README.md, organized around setup, HTTP/MCP use, remote devices and recovery. Added a short overview, navigation, a five-step local setup, authentication/password explanations, and expandable client examples and advanced inputs. Removed the separate guide and updated its current references; preserved operational limits, recovery requirements and the distinction between mock/configuration checks and live-provider testing. Checked relative links/section anchors, JSON examples, shell syntax, CLI flag names, formatting and the diff. Runtime behavior is unchanged; no test suite rerun was needed for documentation and a test-comment change.
