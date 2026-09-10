@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/x509"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -125,6 +126,10 @@ func (s *Server) DeviceHandler() http.Handler {
 			Error(w, 401, e.Error())
 			return
 		}
+		if r.URL.Path == "/device/services" && r.Method == "GET" {
+			s.services(w, r, device)
+			return
+		}
 		service, path, ok := access.Route(r)
 		if !ok {
 			Error(w, 400, "invalid_request")
@@ -173,14 +178,19 @@ func (s *Server) DeviceHandler() http.Handler {
 			Error(w, 500, "credential_unavailable")
 			return
 		}
+		started := time.Now()
 		tr := s.transport(svc)
 		defer tr.CloseIdleConnections()
 		res, e := upstream.Send(r.Context(), svc, r.Method, target, r.Header, strings.NewReader(string(body)), secret, tr)
 		if e != nil {
+			s.httpAudit(device, svc.ID, p.ID, r.Method, 502, started, len(body), 0)
 			Error(w, 502, "upstream_unavailable")
 			return
 		}
-		if _, e = upstream.Stream(w, res, svc.ResponseHeaders); e != nil {
+		res.Header.Del(svc.AuthHeader)
+		n, e := upstream.Stream(w, res, svc.ResponseHeaders)
+		s.httpAudit(device, svc.ID, p.ID, r.Method, res.StatusCode, started, len(body), n)
+		if e != nil {
 			panic(http.ErrAbortHandler)
 		}
 	})
@@ -228,4 +238,31 @@ func (s *Server) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	JSON(w, map[string]any{"device_id": id, "certificate": cert})
+}
+
+func (s *Server) httpAudit(device, service, permission, method string, status int, started time.Time, req int, res int64) {
+	_, _ = s.Store.DB.Exec("INSERT INTO http_events(device_id,service_id,permission_id,method,status,duration_ms,request_bytes,response_bytes) VALUES(?,?,?,?,?,?,?,?)", device, service, permission, method, status, time.Since(started).Milliseconds(), req, res)
+}
+func (s *Server) services(w http.ResponseWriter, r *http.Request, device string) {
+	rows, e := s.Store.DB.Query("SELECT s.id,s.label,p.id,p.method,p.path,p.path_kind,p.mode,p.expires FROM services s JOIN permissions p ON p.service_id=s.id WHERE p.device_id=? AND s.enabled=1 AND p.revision=s.revision AND p.revoked=0 AND (p.expires IS NULL OR p.expires>?) ORDER BY s.id,p.id", device, time.Now().Unix())
+	if e != nil {
+		Error(w, 503, "storage_unavailable")
+		return
+	}
+	defer rows.Close()
+	scopes := []map[string]any{}
+	for rows.Next() {
+		var service, label, id, methods, path, kind, mode string
+		var expires sql.NullInt64
+		if e = rows.Scan(&service, &label, &id, &methods, &path, &kind, &mode, &expires); e != nil {
+			Error(w, 503, "storage_unavailable")
+			return
+		}
+		entry := map[string]any{"service": service, "label": label, "permission_id": id, "methods": strings.Split(methods, ","), "path": path, "path_kind": kind, "mode": mode}
+		if expires.Valid {
+			entry["expires_at"] = time.Unix(expires.Int64, 0).UTC().Format(time.RFC3339)
+		}
+		scopes = append(scopes, entry)
+	}
+	JSON(w, map[string]any{"scopes": scopes})
 }

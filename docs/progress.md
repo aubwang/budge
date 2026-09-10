@@ -18,3 +18,15 @@ Evidence: `go test -race ./...`, `go vet ./...`, and `go build ./cmd/budge` pass
 5. Packaging, UI polish, documentation, CI and measured mock demo.
 
 Real OpenCode/OpenRouter compatibility and real MCP-host compatibility are unverified.
+
+## Slice 2 — verified (mock upstreams)
+
+Acceptance: method lists and exact/subtree scopes with transactional overlap rejection; service revisions invalidate old rules; header/URL/destination confinement; progressive two-hop SSE and cancellation; 8 MiB request / 4 per-device / 32 global limits; generated client configuration without credentials. Real OpenCode/OpenRouter remains pending unless separately authorized.
+
+Verification: `go test -race ./... -timeout 90s`, `go vet ./...`, binary build and generated configuration check passed.
+
+Slice 2 implementation: method lists, exact/subtree/optional-expiry rules, transactional overlap checks, explicit service revision replacement and permission revocation, header policies/private CIDRs, SQL migrations, scoped service listing, bounded request buffering, progressive response forwarding, cancellation and route-ID HTTP metrics. `connect --print-opencode-config` generates the OpenRouter base URL plus `budge-local` only.
+
+Compatibility inspection: the underlying installed OpenCode reports 1.18.20. Its user launcher reads a real OpenRouter credential, so it was deliberately not executed. Official provider documentation/source supports `provider.openrouter.options.baseURL` and `apiKey`. No real-provider smoke test was run. Sources: https://opencode.ai/docs/providers/ and https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/provider/provider.ts .
+
+Streaming test initially had a fixture error: its handler waited for cancellation without consuming the incoming body; fixed the mock to consume the finite request before streaming. It now confirms first event arrival while upstream stays open and cancellation of all four active streams. Tests also cover size limits, reserved/dynamic hop-by-hop headers, redirect refusal, path boundaries/encodings, overlap rejection, old-revision denial and explicit reissue.

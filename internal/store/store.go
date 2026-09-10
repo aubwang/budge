@@ -3,8 +3,9 @@ package store
 import (
 	"crypto/cipher"
 	"database/sql"
-	_ "embed"
+	"embed"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -12,8 +13,8 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-//go:embed schema.sql
-var schema string
+//go:embed migrations/*.sql
+var migrations embed.FS
 
 type Store struct {
 	DB    *sql.DB
@@ -56,7 +57,10 @@ func Open(path, unlock string) (s *Store, err error) {
 		return nil, err
 	}
 	s.DB.SetMaxOpenConns(1)
-	if _, err = s.DB.Exec("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;" + schema); err != nil {
+	if _, err = s.DB.Exec("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;"); err != nil {
+		return nil, err
+	}
+	if err = s.migrate(); err != nil {
 		return nil, err
 	}
 	var salt, check []byte
@@ -110,4 +114,43 @@ func (s *Store) Decrypt(purpose string, b []byte) ([]byte, error) { return Unsea
 func Audit(tx *sql.Tx, owner, device, kind, entity string) error {
 	_, err := tx.Exec("INSERT INTO audit(owner_id,device_id,kind,entity_id) VALUES(?,?,?,?)", owner, device, kind, entity)
 	return err
+}
+
+func (s *Store) migrate() error {
+	var version int
+	if e := s.DB.QueryRow("PRAGMA user_version").Scan(&version); e != nil {
+		return e
+	}
+	files, e := migrations.ReadDir("migrations")
+	if e != nil {
+		return e
+	}
+	if version > len(files) {
+		return errors.New("database is newer than this binary")
+	}
+	for i, f := range files {
+		if i+1 <= version {
+			continue
+		}
+		b, e := migrations.ReadFile("migrations/" + f.Name())
+		if e != nil {
+			return e
+		}
+		tx, e := s.DB.Begin()
+		if e != nil {
+			return e
+		}
+		if _, e = tx.Exec(string(b)); e != nil {
+			tx.Rollback()
+			return e
+		}
+		if _, e = tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", i+1)); e != nil {
+			tx.Rollback()
+			return e
+		}
+		if e = tx.Commit(); e != nil {
+			return e
+		}
+	}
+	return nil
 }

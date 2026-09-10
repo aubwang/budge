@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -19,7 +20,7 @@ func Path(p string) bool {
 		return false
 	}
 	for _, c := range []byte(p) {
-		if c < 33 || c > 126 {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("/-._~!$&'()*+,;=:@", rune(c))) {
 			return false
 		}
 	}
@@ -114,7 +115,7 @@ func ActiveDevice(q Querier, id string) bool {
 	return q.QueryRow("SELECT 1 FROM devices WHERE id=? AND revoked=0", id).Scan(&n) == nil
 }
 func Match(p Permission, method, path string) bool {
-	return p.Method == method && (path == p.Path || (p.Kind == "subtree" && strings.HasPrefix(path, strings.TrimSuffix(p.Path, "/")+"/")))
+	return HasMethod(p.Method, method) && (path == p.Path || (p.Kind == "subtree" && strings.HasPrefix(path, strings.TrimSuffix(p.Path, "/")+"/")))
 }
 func Authorize(q Querier, device, service, method, path string) (Service, Permission, error) {
 	if !ActiveDevice(q, device) {
@@ -139,4 +140,40 @@ func Authorize(q Querier, device, service, method, path string) (Service, Permis
 		}
 	}
 	return s, Permission{}, errors.New("permission_denied")
+}
+
+func HasMethod(methods, method string) bool {
+	for _, m := range strings.Split(methods, ",") {
+		if m == method {
+			return true
+		}
+	}
+	return false
+}
+func Methods(raw string) (string, error) {
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ' ' }) {
+		if !Method(m) || seen[m] {
+			return "", errors.New("invalid or duplicate method")
+		}
+		seen[m] = true
+		out = append(out, m)
+	}
+	if len(out) == 0 {
+		return "", errors.New("methods required")
+	}
+	sort.Strings(out)
+	return strings.Join(out, ","), nil
+}
+func Overlap(a, b Permission) bool {
+	for _, m := range strings.Split(a.Method, ",") {
+		if !HasMethod(b.Method, m) {
+			continue
+		}
+		if Match(a, m, b.Path) || Match(b, m, a.Path) {
+			return true
+		}
+	}
+	return false
 }

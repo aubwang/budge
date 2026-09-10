@@ -161,7 +161,13 @@ func Transport(id Identity) (*http.Transport, error) {
 	if !pool.AppendCertsFromPEM(id.Root) {
 		return nil, errors.New("invalid identity root")
 	}
-	return &http.Transport{Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, Certificates: []tls.Certificate{cert}}, DisableCompression: true, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 30 * time.Second}, nil
+	return &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		c, e := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, address)
+		if e != nil {
+			return nil, e
+		}
+		return &upstream.IdleConn{Conn: c}, nil
+	}, Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool, Certificates: []tls.Certificate{cert}}, DisableCompression: true, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 30 * time.Second}, nil
 }
 func Connector(id Identity, host string) (http.Handler, func(), error) {
 	h, p, e := net.SplitHostPort(host)
@@ -173,6 +179,7 @@ func Connector(id Identity, host string) (http.Handler, func(), error) {
 		return nil, nil, e
 	}
 	c := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	slots := make(chan struct{}, 4)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != host || r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" || r.Header.Get("Access-Control-Request-Method") != "" {
 			http.Error(w, "local caller rejected", 403)
@@ -180,6 +187,13 @@ func Connector(id Identity, host string) (http.Handler, func(), error) {
 		}
 		if _, _, ok := access.Route(r); !ok {
 			http.Error(w, "invalid request", 400)
+			return
+		}
+		select {
+		case slots <- struct{}{}:
+			defer func() { <-slots }()
+		default:
+			http.Error(w, "connector overloaded", 429)
 			return
 		}
 		b, e := io.ReadAll(http.MaxBytesReader(w, r.Body, 8<<20))

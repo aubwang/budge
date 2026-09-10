@@ -14,12 +14,16 @@ Run `bin/budge server --url https://localhost:8443`. Enter a server unlock secre
 
 On the device, run `bin/budge enroll`, paste the invitation at its hidden prompt, and choose an identity passphrase. In the owner UI, grant that device an exact method/path permission. Run `bin/budge connect` and use `http://127.0.0.1:7777/s/SERVICE/PATH` from an ordinary HTTP client. If the client demands an API key, `budge-local` is a non-secret placeholder; it is stripped. No real-provider compatibility is claimed yet.
 
+Generate an OpenCode routing fragment with `bin/budge connect --print-opencode-config`. Configuration fields were checked against official OpenCode documentation; the installed underlying executable reports 1.18.20, but real OpenCode/OpenRouter behavior has not been tested.
+
 The server and connector must be unlocked after each restart. Automated input uses dedicated `--unlock-fd`, `--owner-password-fd`, `--invitation-fd`, and `--passphrase-fd` streams; never pass secret values as flags or put them in an .env file. Each descriptor supplies one line, at most 64 KiB. Keep local identity and database directories private. Losing the unlock secret loses access to the encrypted material.
 
 The server's default device and owner listeners bind loopback. Set `--device-listen` and `--url` for a remotely reachable device endpoint. The owner UI stays on loopback; remote administration uses an SSH tunnel preserving the configured Host. Only enrolled client certificates authenticate device access; network restrictions alone grant no access.
 
-## Limits of the first slice
+## Current boundaries
 
-Only exact standing permissions and minimal owner controls are exposed. MCP is not implemented. HTTPS upstreams are required; private, loopback and link-local addresses are denied. Integration tests inject a local TLS mock transport in test code only. Paths use the handoff's conservative ASCII grammar. HTTP request bodies are limited to 8 MiB. Local processes can use the connector's device-wide authority. A trusted upstream that reflects its own credential can expose it in a response; Budge is not a response DLP filter.
+Exact/subtree rules, method lists, optional expiry, standing/approval-required modes, service revision replacement and revocation are available. Direct HTTP rejects approval-required routes; MCP is not implemented yet. HTTPS upstreams are required; private, loopback and link-local addresses are denied. Integration tests inject a local TLS mock transport in test code only. Paths use the handoff's conservative ASCII grammar. HTTP request bodies are limited to 8 MiB. Local processes can use the connector's device-wide authority. A trusted upstream that reflects its own credential can expose it in a response; Budge is not a response DLP filter.
 
 This is work in progress, not a completed or published v1. Do not restore an old database and resume service: an old copy may resurrect access and, once durable requests exist, execution authority.
+
+HTTP uses bounded 10-second connection/TLS and 30-second response-header timeouts, a five-minute upstream/read idle timeout, and a 30-second downstream write timeout. There is no short total response timeout. Responses stream with bounded buffers and backpressure. There are four concurrent requests per device and 32 globally. There are no Budge application retries; fresh outbound HTTP/1 transports also avoid pooled-connection replay. HTTP audit metrics contain IDs, method, status, duration and byte counts, not raw paths/queries or bodies.

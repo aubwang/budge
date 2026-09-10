@@ -1,0 +1,1 @@
+CREATE TABLE http_events(id INTEGER PRIMARY KEY,time INTEGER NOT NULL DEFAULT(unixepoch()),device_id TEXT NOT NULL,service_id TEXT NOT NULL,permission_id TEXT NOT NULL,method TEXT NOT NULL,status INTEGER NOT NULL,duration_ms INTEGER NOT NULL,request_bytes INTEGER NOT NULL,response_bytes INTEGER NOT NULL);

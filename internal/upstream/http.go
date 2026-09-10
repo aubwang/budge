@@ -20,7 +20,7 @@ func Reserved(name string) bool {
 	case "authorization", "proxy-authorization", "cookie", "set-cookie", "www-authenticate", "proxy-authenticate", "host", "connection", "keep-alive", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade", "content-length", "forwarded", "via", "x-real-ip", "x-http-method-override", "x-http-method", "x-method-override":
 		return true
 	}
-	return strings.HasPrefix(n, "x-forwarded-") || strings.HasPrefix(n, "x-budge-") || strings.HasPrefix(n, "budge-") || strings.HasPrefix(n, "sec-")
+	return strings.HasPrefix(n, "x-forwarded-") || strings.HasPrefix(n, "x-budge-") || strings.HasPrefix(n, "budge-") || strings.HasPrefix(n, "sec-") || strings.HasPrefix(n, "x-auth-") || strings.HasPrefix(n, "x-remote-") || strings.HasPrefix(n, "x-ssl-") || strings.HasPrefix(n, "x-client-cert")
 }
 func HeaderName(n string) bool {
 	if n == "" {
@@ -95,20 +95,20 @@ func Transport(s access.Service) *http.Transport {
 		for _, ip := range ips {
 			c, e := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 			if e == nil {
-				return &idleConn{Conn: c}, nil
+				return &IdleConn{Conn: c}, nil
 			}
 		}
 		return nil, errors.New("destination connection failed")
 	}}
 }
 
-type idleConn struct{ net.Conn }
+type IdleConn struct{ net.Conn }
 
-func (c *idleConn) Read(b []byte) (int, error) {
+func (c *IdleConn) Read(b []byte) (int, error) {
 	c.SetReadDeadline(time.Now().Add(5 * time.Minute))
 	return c.Conn.Read(b)
 }
-func (c *idleConn) Write(b []byte) (int, error) {
+func (c *IdleConn) Write(b []byte) (int, error) {
 	c.SetWriteDeadline(time.Now().Add(30 * time.Second))
 	return c.Conn.Write(b)
 }

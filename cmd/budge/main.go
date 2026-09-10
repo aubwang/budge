@@ -145,11 +145,21 @@ func run() error {
 		fmt.Fprintln(os.Stderr, "Enrolled device", id.DeviceID)
 		return nil
 	case "connect":
+		configOnly := flags.Bool("print-opencode-config", false, "print OpenRouter routing config without starting or unlocking")
+		service := flags.String("service", "openrouter", "service ID for generated config")
 		path := flags.String("identity", defaultIdentity(), "encrypted identity path")
 		listen := flags.String("listen", "127.0.0.1:7777", "loopback connector address")
 		passFD := flags.Int("passphrase-fd", -1, "dedicated identity passphrase input FD")
 		if e := flags.Parse(os.Args[2:]); e != nil {
 			return e
+		}
+		if *configOnly {
+			b, e := client.OpenCodeConfig(*listen, *service)
+			if e != nil {
+				return e
+			}
+			fmt.Println(string(b))
+			return nil
 		}
 		pass, e := secret("Local identity passphrase", *passFD)
 		if e != nil {
@@ -188,7 +198,7 @@ func serve(ctx context.Context, listeners []net.Listener, handlers []http.Handle
 	errs := make(chan error, len(listeners))
 	servers := make([]*http.Server, len(listeners))
 	for i, l := range listeners {
-		s := &http.Server{Handler: handlers[i], ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 32 << 10, ErrorLog: log.New(io.Discard, "", 0)}
+		s := &http.Server{Handler: handlers[i], ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 32 << 10, ErrorLog: log.New(io.Discard, "", 0)}
 		servers[i] = s
 		go func() { errs <- s.Serve(l) }()
 	}
