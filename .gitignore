@@ -1,0 +1,7 @@
+/bin/
+/state/
+*.db
+*.db-*
+*.lock
+*.identity
+/budge

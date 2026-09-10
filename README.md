@@ -1,0 +1,25 @@
+# Budge
+
+A self-hosted HTTP gateway: enroll a device and grant specific access while upstream credentials stay on the trusted machine. The fixed design is [BUILD_HANDOFF.md](BUILD_HANDOFF.md). Implementation status and evidence live in [docs/progress.md](docs/progress.md).
+
+## Development
+
+Requires Go 1.27.1. Run `go test -race ./...`, `go vet ./...`, and `go build -o bin/budge ./cmd/budge`. On the initial development box, Go is under `~/.local/share/budge-toolchain/go/bin`.
+
+Dependencies are pinned in go.mod/go.sum: [modernc SQLite](https://pkg.go.dev/modernc.org/sqlite@v1.58.0), [Go x/crypto](https://pkg.go.dev/golang.org/x/crypto@v0.57.0), and [Go x/term](https://pkg.go.dev/golang.org/x/term@v0.46.0). The toolchain was downloaded from [Go's official distribution](https://go.dev/dl/) with its published SHA-256 checked. No old Budge code was imported.
+
+## Initial local setup (Slice 1)
+
+Run `bin/budge server --url https://localhost:8443`. Enter a server unlock secret and a separate initial owner password at the hidden prompts (12 characters minimum). Open `http://127.0.0.1:8080`, sign in, add a service, and create an invitation. Credentials are write only. The invitation is shown once, expires in five minutes, and must be transferred privately.
+
+On the device, run `bin/budge enroll`, paste the invitation at its hidden prompt, and choose an identity passphrase. In the owner UI, grant that device an exact method/path permission. Run `bin/budge connect` and use `http://127.0.0.1:7777/s/SERVICE/PATH` from an ordinary HTTP client. If the client demands an API key, `budge-local` is a non-secret placeholder; it is stripped. No real-provider compatibility is claimed yet.
+
+The server and connector must be unlocked after each restart. Automated input uses dedicated `--unlock-fd`, `--owner-password-fd`, `--invitation-fd`, and `--passphrase-fd` streams; never pass secret values as flags or put them in an .env file. Each descriptor supplies one line, at most 64 KiB. Keep local identity and database directories private. Losing the unlock secret loses access to the encrypted material.
+
+The server's default device and owner listeners bind loopback. Set `--device-listen` and `--url` for a remotely reachable device endpoint. The owner UI stays on loopback; remote administration uses an SSH tunnel preserving the configured Host. Only enrolled client certificates authenticate device access; network restrictions alone grant no access.
+
+## Limits of the first slice
+
+Only exact standing permissions and minimal owner controls are exposed. MCP is not implemented. HTTPS upstreams are required; private, loopback and link-local addresses are denied. Integration tests inject a local TLS mock transport in test code only. Paths use the handoff's conservative ASCII grammar. HTTP request bodies are limited to 8 MiB. Local processes can use the connector's device-wide authority. A trusted upstream that reflects its own credential can expose it in a response; Budge is not a response DLP filter.
+
+This is work in progress, not a completed or published v1. Do not restore an old database and resume service: an old copy may resurrect access and, once durable requests exist, execution authority.
